@@ -49,6 +49,10 @@ const io = new Server(server, {
   },
 });
 
+app.get('/', (req, res) => {
+  res.json({ status: "Backend Running" });
+});
+
 // ─── Middleware ───────────────────────────────────────────
 app.use(cors(corsOptions));
 app.use(express.json());

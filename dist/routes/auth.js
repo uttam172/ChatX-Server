@@ -60,24 +60,29 @@ router.post('/signup', (req, res) => __awaiter(void 0, void 0, void 0, function*
         res.status(500).json({ error: 'Internal server error' });
     }
 }));
-// Login
+// Login — accepts email OR hikeId + password
 router.post('/login', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { email, password } = req.body;
-        if (!email || !password) {
-            return res.status(400).json({ error: 'Email and password are required' });
+        const { identifier, password } = req.body;
+        if (!identifier || !password) {
+            return res.status(400).json({ error: 'Email/Hike ID and password are required' });
         }
-        // Find user
-        const user = yield User_1.User.findOne({ email });
+        // Detect whether identifier looks like an email or a hikeId
+        const isEmail = identifier.includes('@') && identifier.includes('.');
+        // Search by email OR hikeId (strip leading @ if user typed it)
+        const cleanIdentifier = identifier.startsWith('@') ? identifier.slice(1) : identifier;
+        const user = yield User_1.User.findOne(isEmail
+            ? { email: cleanIdentifier.toLowerCase() }
+            : { $or: [{ hikeId: cleanIdentifier }, { email: cleanIdentifier.toLowerCase() }] });
         if (!user) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
-        // Check password
+        // Verify password
         const isMatch = yield bcryptjs_1.default.compare(password, user.passwordHash);
         if (!isMatch) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
-        // Generate JWT
+        // Sign JWT
         const token = jsonwebtoken_1.default.sign({ userId: user._id, hikeId: user.hikeId }, JWT_SECRET, { expiresIn: '7d' });
         res.json({
             message: 'Login successful',

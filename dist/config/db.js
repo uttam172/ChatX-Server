@@ -14,12 +14,34 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const mongoose_1 = __importDefault(require("mongoose"));
 const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
+    const uri = process.env.MONGODB_URI;
+    if (!uri) {
+        console.error('❌ MONGODB_URI is not defined in your .env file!');
+        process.exit(1);
+    }
     try {
-        const conn = yield mongoose_1.default.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/chatx');
-        console.log(`MongoDB Connected: ${conn.connection.host}`);
+        yield mongoose_1.default.connect(uri, {
+            serverSelectionTimeoutMS: 10000, // 10 seconds to find a server
+            connectTimeoutMS: 10000, // 10 seconds to establish connection
+            socketTimeoutMS: 45000, // 45 seconds for socket to timeout
+            family: 4, // Force IPv4 (avoids IPv6 DNS issues)
+        });
+        console.log(`✅ MongoDB Connected: ${mongoose_1.default.connection.host}`);
+        mongoose_1.default.connection.on('error', (err) => {
+            console.error('❌ MongoDB runtime error:', err.message);
+        });
+        mongoose_1.default.connection.on('disconnected', () => {
+            console.warn('⚠️  MongoDB disconnected. Attempting to reconnect...');
+        });
     }
     catch (error) {
-        console.error(`Error: ${error.message}`);
+        console.error('❌ MongoDB connection failed:', error.message);
+        console.error('\n📋 Troubleshooting tips:');
+        console.error('   1. Try the STANDARD (non-SRV) connection string from Atlas');
+        console.error('      Go to Atlas → Connect → Drivers → Select Node.js');
+        console.error('      Toggle OFF "Use SRV" to get: mongodb://host1,host2,...');
+        console.error('   2. Change your DNS to Google: 8.8.8.8 / 8.8.4.4');
+        console.error('   3. Check if your ISP blocks port 27017\n');
         process.exit(1);
     }
 });

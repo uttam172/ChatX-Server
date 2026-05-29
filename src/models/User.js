@@ -1,14 +1,4 @@
-import mongoose from 'mongoose';
-
-export interface IUser extends mongoose.Document {
-  email: string;
-  passwordHash: string;
-  hikeId: string;
-  publicKey: string;
-  hiddenPinHash?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
+const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema(
   {
@@ -17,10 +7,13 @@ const userSchema = new mongoose.Schema(
     hikeId: { type: String, required: true, unique: true },
     publicKey: { type: String, required: true },
     hiddenPinHash: { type: String },
+    encryptedPrivateKey: { type: String },
   },
   {
     timestamps: true,
   }
 );
 
-export const User = mongoose.model<IUser>('User', userSchema);
+const User = mongoose.model('User', userSchema);
+
+module.exports = { User };

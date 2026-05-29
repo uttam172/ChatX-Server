@@ -1,10 +1,4 @@
-import mongoose from 'mongoose';
-
-export interface IChatSettings extends mongoose.Document {
-  userId: mongoose.Types.ObjectId;
-  peerId: mongoose.Types.ObjectId;
-  isHidden: boolean;
-}
+const mongoose = require('mongoose');
 
 const chatSettingsSchema = new mongoose.Schema(
   {
@@ -20,4 +14,6 @@ const chatSettingsSchema = new mongoose.Schema(
 // Ensure a user can only have one settings record per peer
 chatSettingsSchema.index({ userId: 1, peerId: 1 }, { unique: true });
 
-export const ChatSettings = mongoose.model<IChatSettings>('ChatSettings', chatSettingsSchema);
+const ChatSettings = mongoose.model('ChatSettings', chatSettingsSchema);
+
+module.exports = { ChatSettings };

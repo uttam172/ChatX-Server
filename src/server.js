@@ -1,20 +1,36 @@
+// Support resolving 'node:' prefixed core modules on older Node.js versions (like v14.17.3)
+const Module = require('module');
+const originalResolveFilename = Module._resolveFilename;
+Module._resolveFilename = function (request, parent, isMain, options) {
+  if (typeof request === 'string' && request.startsWith('node:')) {
+    const stripped = request.substring(5);
+    try {
+      return originalResolveFilename.apply(this, arguments);
+    } catch (err) {
+      arguments[0] = stripped;
+      return originalResolveFilename.apply(this, arguments);
+    }
+  }
+  return originalResolveFilename.apply(this, arguments);
+};
+
 // !! MUST be the very first line before any other imports !!
-import * as dotenv from 'dotenv';
-import path from 'path';
+const dotenv = require('dotenv');
+const path = require('path');
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
-import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
-import cors from 'cors';
-import jwt from 'jsonwebtoken';
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
 
-import connectDB from './config/db';
-import { Message } from './models/Message';
-import authRoutes from './routes/auth';
-import userRoutes from './routes/users';
+const connectDB = require('./config/db');
+const { Message } = require('./models/Message');
+const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/users');
 
-const JWT_SECRET = process.env.JWT_SECRET as string;
+const JWT_SECRET = process.env.JWT_SECRET;
 const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB Atlas
@@ -30,7 +46,7 @@ const allowedOrigins = [
 ].filter(Boolean);
 
 const corsOptions = {
-  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
@@ -73,7 +89,7 @@ io.use((socket, next) => {
     return next(new Error('Authentication error: No token provided'));
   }
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; hikeId: string };
+    const decoded = jwt.verify(token, JWT_SECRET);
     socket.data.userId = decoded.userId;
     socket.data.hikeId = decoded.hikeId;
     next();
@@ -84,7 +100,7 @@ io.use((socket, next) => {
 
 // ─── Socket.io Events ────────────────────────────────────
 io.on('connection', (socket) => {
-  const userId: string = socket.data.userId;
+  const userId = socket.data.userId;
   console.log(`✅ User connected: @${socket.data.hikeId} (socket: ${socket.id})`);
 
   // Each user joins their own private room so we can target them directly
@@ -131,7 +147,7 @@ io.on('connection', (socket) => {
   });
 
   // ── typing indicator ──────────────────────────────────
-  socket.on('typing', (data: { receiverId: string; isTyping: boolean }) => {
+  socket.on('typing', (data) => {
     io.to(data.receiverId).emit('typing_status', {
       senderId: userId,
       isTyping: data.isTyping,

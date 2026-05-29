@@ -1,6 +1,6 @@
-import mongoose from 'mongoose';
+const mongoose = require('mongoose');
 
-const connectDB = async (): Promise<void> => {
+const connectDB = async () => {
   const uri = process.env.MONGODB_URI;
 
   if (!uri) {
@@ -26,7 +26,7 @@ const connectDB = async (): Promise<void> => {
       console.warn('⚠️  MongoDB disconnected. Attempting to reconnect...');
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('❌ MongoDB connection failed:', error.message);
     console.error('\n📋 Troubleshooting tips:');
     console.error('   1. Try the STANDARD (non-SRV) connection string from Atlas');
@@ -38,4 +38,4 @@ const connectDB = async (): Promise<void> => {
   }
 };
 
-export default connectDB;
+module.exports = connectDB;

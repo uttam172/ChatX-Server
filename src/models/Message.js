@@ -1,15 +1,4 @@
-import mongoose from 'mongoose';
-
-export interface IMessage extends mongoose.Document {
-  senderId: mongoose.Types.ObjectId;
-  receiverId: mongoose.Types.ObjectId;
-  ciphertext: string;
-  iv: string;
-  encryptedAesKeySender: string;
-  encryptedAesKeyReceiver: string;
-  isNudge: boolean;
-  createdAt: Date;
-}
+const mongoose = require('mongoose');
 
 const messageSchema = new mongoose.Schema(
   {
@@ -26,4 +15,6 @@ const messageSchema = new mongoose.Schema(
   }
 );
 
-export const Message = mongoose.model<IMessage>('Message', messageSchema);
+const Message = mongoose.model('Message', messageSchema);
+
+module.exports = { Message };

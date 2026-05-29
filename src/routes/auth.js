@@ -1,8 +1,8 @@
-import { Router } from 'express';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { User } from '../models/User';
-import { AuthRequest, authenticateToken } from '../middlewares/auth';
+const { Router } = require('express');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { User } = require('../models/User');
+const { authenticateToken } = require('../middlewares/auth');
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-for-dev';
@@ -10,10 +10,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-for-dev';
 // Signup
 router.post('/signup', async (req, res) => {
   try {
-    const { email, password, hikeId, publicKey } = req.body;
+    const { email, password, hikeId, publicKey, encryptedPrivateKey } = req.body;
 
-    if (!email || !password || !hikeId || !publicKey) {
-      return res.status(400).json({ error: 'All fields are required (email, password, hikeId, publicKey)' });
+    if (!email || !password || !hikeId || !publicKey || !encryptedPrivateKey) {
+      return res.status(400).json({ error: 'All fields are required (email, password, hikeId, publicKey, encryptedPrivateKey)' });
     }
 
     // Check if user already exists
@@ -35,6 +35,7 @@ router.post('/signup', async (req, res) => {
       passwordHash,
       hikeId,
       publicKey,
+      encryptedPrivateKey,
     });
 
     // Generate JWT
@@ -97,6 +98,7 @@ router.post('/login', async (req, res) => {
         email: user.email,
         hikeId: user.hikeId,
         publicKey: user.publicKey,
+        encryptedPrivateKey: user.encryptedPrivateKey,
       },
     });
   } catch (error) {
@@ -106,7 +108,7 @@ router.post('/login', async (req, res) => {
 });
 
 // Set Hidden Mode PIN
-router.post('/set-pin', authenticateToken, async (req: AuthRequest, res) => {
+router.post('/set-pin', authenticateToken, async (req, res) => {
   try {
     const { pin } = req.body;
     const userId = req.user?.userId;
@@ -127,4 +129,4 @@ router.post('/set-pin', authenticateToken, async (req: AuthRequest, res) => {
   }
 });
 
-export default router;
+module.exports = router;

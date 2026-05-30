@@ -54,8 +54,7 @@ router.get('/all', authenticateToken, async (req, res) => {
     const currentUserId = req.user?.userId;
     const users = await User.find({ _id: { $ne: currentUserId } })
       .select('hikeId publicKey')
-      .sort({ createdAt: -1 })   // newest signups first
-      .limit(50);
+      .sort({ createdAt: -1 });   // newest signups first
 
     res.json(users);
   } catch (error) {
@@ -171,7 +170,15 @@ router.get('/recent', authenticateToken, async (req, res) => {
             .select('hikeId publicKey');
 
         const sortedUsers = userIds
-            .map(id => users.find(u => u._id.toString() === id.toString()))
+            .map(id => {
+                const user = users.find(u => u._id.toString() === id.toString());
+                const msgInfo = recentMessages.find(m => m._id.toString() === id.toString());
+                if (!user) return null;
+                return {
+                    ...user.toObject(),
+                    latestMessage: msgInfo ? msgInfo.latestMessage : null
+                };
+            })
             .filter(Boolean);
 
         res.json(sortedUsers);

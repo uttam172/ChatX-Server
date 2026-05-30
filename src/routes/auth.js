@@ -48,6 +48,8 @@ router.post('/signup', async (req, res) => {
         id: newUser._id,
         email: newUser.email,
         hikeId: newUser.hikeId,
+        publicKey: newUser.publicKey,
+        encryptedPrivateKey: newUser.encryptedPrivateKey,
       },
     });
   } catch (error) {

@@ -117,6 +117,7 @@ io.on('connection', (socket) => {
         encryptedAesKeySender,
         encryptedAesKeyReceiver,
         isNudge,
+        replyTo,
       } = data;
 
       if (!receiverId || !ciphertext || !iv) {
@@ -133,6 +134,7 @@ io.on('connection', (socket) => {
         encryptedAesKeySender,
         encryptedAesKeyReceiver,
         isNudge: isNudge ?? false,
+        replyTo: replyTo || null,
       });
 
       // Deliver to receiver's private room
@@ -144,6 +146,76 @@ io.on('connection', (socket) => {
     } catch (error) {
       console.error('send_message error:', error);
       socket.emit('error', { message: 'Failed to send message. Please try again.' });
+    }
+  });
+
+  // ── unsend_message ────────────────────────────────────
+  socket.on('unsend_message', async (data) => {
+    try {
+      const { messageId } = data;
+      if (!messageId) return;
+
+      const message = await Message.findById(messageId);
+      if (!message) return;
+
+      // Verify if socket user is the sender
+      if (message.senderId.toString() !== userId.toString()) {
+        socket.emit('error', { message: 'Unauthorized to unsend this message' });
+        return;
+      }
+
+      // Deletes the message persistently from MongoDB
+      await Message.findByIdAndDelete(messageId);
+
+      // Broadcast unsend event
+      io.to(message.receiverId.toString()).emit('message_unsended', { messageId });
+      io.to(message.senderId.toString()).emit('message_unsended', { messageId });
+
+    } catch (error) {
+      console.error('unsend_message error:', error);
+    }
+  });
+
+  // ── react_to_message ──────────────────────────────────
+  socket.on('react_to_message', async (data) => {
+    try {
+      const { messageId, emoji } = data;
+      if (!messageId || !emoji) return;
+
+      const message = await Message.findById(messageId);
+      if (!message) return;
+
+      const existingReactionIdx = message.reactions.findIndex(
+        (r) => r.userId.toString() === userId.toString()
+      );
+
+      if (existingReactionIdx > -1) {
+        if (message.reactions[existingReactionIdx].emoji === emoji) {
+          // Toggle off
+          message.reactions.splice(existingReactionIdx, 1);
+        } else {
+          // Update
+          message.reactions[existingReactionIdx].emoji = emoji;
+        }
+      } else {
+        // Add new
+        message.reactions.push({ userId, emoji });
+      }
+
+      await message.save();
+
+      const updatedMsg = message.toObject();
+      io.to(message.receiverId.toString()).emit('message_reaction', {
+        messageId,
+        reactions: updatedMsg.reactions,
+      });
+      io.to(message.senderId.toString()).emit('message_reaction', {
+        messageId,
+        reactions: updatedMsg.reactions,
+      });
+
+    } catch (error) {
+      console.error('react_to_message error:', error);
     }
   });
 

@@ -10,6 +10,13 @@ const messageSchema = new mongoose.Schema(
     encryptedAesKeyReceiver: { type: String, required: true },
     isNudge: { type: Boolean, default: false },
     read: { type: Boolean, default: false },
+    replyTo: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', default: null },
+    reactions: [
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        emoji: { type: String, required: true }
+      }
+    ],
   },
   {
     timestamps: true,

@@ -260,6 +260,29 @@ router.post('/read/:peerId', authenticateToken, async (req, res) => {
     }
 });
 
+// Clear message history with a peer
+router.delete('/history/:peerId', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        const { peerId } = req.params;
+
+        if (!userId || !peerId) {
+            return res.status(400).json({ error: 'Invalid parameters' });
+        }
+
+        await Message.deleteMany({
+            $or: [
+                { senderId: userId, receiverId: peerId },
+                { senderId: peerId, receiverId: userId }
+            ]
+        });
+
+        res.json({ message: 'Chat history cleared successfully' });
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // Update user's E2EE Public Key & Private Key Backup
 router.post('/update-public-key', authenticateToken, async (req, res) => {
     try {

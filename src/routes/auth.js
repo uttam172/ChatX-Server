@@ -16,9 +16,12 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ error: 'All fields are required (email, password, hikeId, publicKey, encryptedPrivateKey)' });
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanHikeId = hikeId.trim().startsWith('@') ? hikeId.trim().slice(1).toLowerCase() : hikeId.trim().toLowerCase();
+
     // Check if user already exists
     const existingUser = await User.findOne({
-      $or: [{ email }, { hikeId }],
+      $or: [{ email: cleanEmail }, { hikeId: cleanHikeId }],
     });
 
     if (existingUser) {
@@ -31,9 +34,9 @@ router.post('/signup', async (req, res) => {
 
     // Create user
     const newUser = await User.create({
-      email,
+      email: cleanEmail,
       passwordHash,
-      hikeId,
+      hikeId: cleanHikeId,
       publicKey,
       encryptedPrivateKey,
     });
@@ -70,13 +73,13 @@ router.post('/login', async (req, res) => {
     // Detect whether identifier looks like an email or a hikeId
     const isEmail = identifier.includes('@') && identifier.includes('.');
 
-    // Search by email OR hikeId (strip leading @ if user typed it)
-    const cleanIdentifier = identifier.startsWith('@') ? identifier.slice(1) : identifier;
+    // Search by email OR hikeId (strip leading @ and lowercase)
+    const cleanIdentifier = identifier.trim().startsWith('@') ? identifier.trim().slice(1).toLowerCase() : identifier.trim().toLowerCase();
 
     const user = await User.findOne(
       isEmail
-        ? { email: cleanIdentifier.toLowerCase() }
-        : { $or: [{ hikeId: cleanIdentifier }, { email: cleanIdentifier.toLowerCase() }] }
+        ? { email: cleanIdentifier }
+        : { $or: [{ hikeId: cleanIdentifier }, { email: cleanIdentifier }] }
     );
 
     if (!user) {

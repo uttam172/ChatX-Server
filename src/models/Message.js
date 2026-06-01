@@ -9,6 +9,7 @@ const messageSchema = new mongoose.Schema(
     encryptedAesKeySender: { type: String, required: true },
     encryptedAesKeyReceiver: { type: String, required: true },
     isNudge: { type: Boolean, default: false },
+    read: { type: Boolean, default: false },
   },
   {
     timestamps: true,

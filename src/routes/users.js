@@ -165,6 +165,26 @@ router.get('/recent', authenticateToken, async (req, res) => {
             }
         ]);
 
+        const unreadCounts = await Message.aggregate([
+            {
+                $match: {
+                    receiverId: new mongoose.Types.ObjectId(userId),
+                    read: false
+                }
+            },
+            {
+                $group: {
+                    _id: "$senderId",
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        const unreadMap = {};
+        unreadCounts.forEach(item => {
+            unreadMap[item._id.toString()] = item.count;
+        });
+
         const userIds = recentMessages.map(m => m._id);
         const users = await User.find({ _id: { $in: userIds } })
             .select('hikeId publicKey');
@@ -176,7 +196,8 @@ router.get('/recent', authenticateToken, async (req, res) => {
                 if (!user) return null;
                 return {
                     ...user.toObject(),
-                    latestMessage: msgInfo ? msgInfo.latestMessage : null
+                    latestMessage: msgInfo ? msgInfo.latestMessage : null,
+                    unreadCount: unreadMap[id.toString()] || 0
                 };
             })
             .filter(Boolean);
@@ -198,6 +219,7 @@ router.get('/history/:peerId', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'Invalid parameters' });
         }
 
+        // 1. Fetch messages first so we know their original read status
         const messages = await Message.find({
             $or: [
                 { senderId: userId, receiverId: peerId },
@@ -205,7 +227,34 @@ router.get('/history/:peerId', authenticateToken, async (req, res) => {
             ]
         }).sort({ createdAt: 1 });
 
+        // 2. Mark messages as read in the database in the background
+        await Message.updateMany(
+            { senderId: peerId, receiverId: userId, read: false },
+            { $set: { read: true } }
+        );
+
         res.json(messages);
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Mark all messages from a peer as read
+router.post('/read/:peerId', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        const { peerId } = req.params;
+
+        if (!userId || !peerId) {
+            return res.status(400).json({ error: 'Invalid parameters' });
+        }
+
+        await Message.updateMany(
+            { senderId: peerId, receiverId: userId, read: false },
+            { $set: { read: true } }
+        );
+
+        res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: 'Internal server error' });
     }

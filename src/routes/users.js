@@ -10,56 +10,56 @@ const router = Router();
 
 // Get current user profile
 router.get('/me', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user?.userId;
-    const user = await User.findById(userId).select('-passwordHash -hiddenPinHash');
+    try {
+        const userId = req.user?.userId;
+        const user = await User.findById(userId).select('-passwordHash -hiddenPinHash');
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json(user);
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
     }
-
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
-  }
 });
 
 // Search users by hikeId or email
 router.get('/search', authenticateToken, async (req, res) => {
-  try {
-    const { q } = req.query;
-    const currentUserId = req.user?.userId;
+    try {
+        const { q } = req.query;
+        const currentUserId = req.user?.userId;
 
-    if (!q || typeof q !== 'string') {
-      return res.json([]);
+        if (!q || typeof q !== 'string') {
+            return res.json([]);
+        }
+
+        const regex = new RegExp(q.replace(/^@/, ''), 'i');
+        const users = await User.find({
+            _id: { $ne: currentUserId },           // exclude self
+            $or: [{ hikeId: regex }, { email: regex }],
+        })
+            .select('hikeId publicKey')
+            .limit(20);
+
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
     }
-
-    const regex = new RegExp(q.replace(/^@/, ''), 'i');
-    const users = await User.find({
-      _id: { $ne: currentUserId },           // exclude self
-      $or: [{ hikeId: regex }, { email: regex }],
-    })
-      .select('hikeId publicKey')
-      .limit(20);
-
-    res.json(users);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
-  }
 });
 
 // Get all users (excluding self) — used to populate sidebar on load
 router.get('/all', authenticateToken, async (req, res) => {
-  try {
-    const currentUserId = req.user?.userId;
-    const users = await User.find({ _id: { $ne: currentUserId } })
-      .select('hikeId publicKey')
-      .sort({ createdAt: -1 });   // newest signups first
+    try {
+        const currentUserId = req.user?.userId;
+        const users = await User.find({ _id: { $ne: currentUserId } })
+            .select('hikeId publicKey')
+            .sort({ createdAt: -1 });   // newest signups first
 
-    res.json(users);
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
-  }
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 // Verify Hidden PIN
@@ -73,13 +73,13 @@ router.post('/verify-pin', authenticateToken, async (req, res) => {
         }
 
         const user = await User.findById(userId);
-        
+
         if (!user || !user.hiddenPinHash) {
             return res.status(400).json({ error: 'No PIN configured' });
         }
 
         const isMatch = await bcrypt.compare(pin.toString(), user.hiddenPinHash);
-        
+
         if (isMatch) {
             res.json({ success: true });
         } else {

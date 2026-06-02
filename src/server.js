@@ -101,10 +101,25 @@ io.use((socket, next) => {
     }
 });
 
+// ─── Socket.io State ─────────────────────────────────────
+const onlineUsers = {}; // Mapping of userId -> { isOnline: boolean, lastSeen: number }
+const userConnections = new Map(); // Map of userId -> Set of socketId
+
 // ─── Socket.io Events ────────────────────────────────────
 io.on('connection', (socket) => {
     const userId = socket.data.userId;
     console.log(`✅ User connected: @${socket.data.hikeId} (socket: ${socket.id})`);
+
+    // Track user online status
+    if (!userConnections.has(userId)) {
+        userConnections.set(userId, new Set());
+        onlineUsers[userId] = { isOnline: true, lastSeen: Date.now() };
+        io.emit('user_status', { userId, isOnline: true, lastSeen: Date.now() });
+    }
+    userConnections.get(userId).add(socket.id);
+
+    // Send full online users map to the newly connected user
+    socket.emit('online_users_list', onlineUsers);
 
     // Each user joins their own private room so we can target them directly
     socket.join(userId);
@@ -289,6 +304,15 @@ io.on('connection', (socket) => {
     // ── disconnect ────────────────────────────────────────
     socket.on('disconnect', (reason) => {
         console.log(`❌ User disconnected: @${socket.data.hikeId} (reason: ${reason})`);
+
+        if (userConnections.has(userId)) {
+            userConnections.get(userId).delete(socket.id);
+            if (userConnections.get(userId).size === 0) {
+                userConnections.delete(userId);
+                onlineUsers[userId] = { isOnline: false, lastSeen: Date.now() };
+                io.emit('user_status', { userId, isOnline: false, lastSeen: Date.now() });
+            }
+        }
     });
 });
 

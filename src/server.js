@@ -67,6 +67,8 @@ const io = new Server(server, {
     },
 });
 
+app.set('socketio', io);
+
 app.get('/', (req, res) => {
     res.json({ status: "Backend Running" });
 });
@@ -124,6 +126,39 @@ io.on('connection', (socket) => {
     // Each user joins their own private room so we can target them directly
     socket.join(userId);
 
+    // Deliver any offline backlogged messages sent to this user
+    (async () => {
+        try {
+            // Find all messages sent to this user that are not yet marked delivered
+            const undelivered = await Message.find({ receiverId: userId, delivered: false });
+            if (undelivered.length > 0) {
+                // Update their delivery status in the DB
+                await Message.updateMany(
+                    { receiverId: userId, delivered: false },
+                    { $set: { delivered: true } }
+                );
+
+                // Group messages by senderId to notify each online sender in real-time
+                const senderGroups = {};
+                undelivered.forEach(msg => {
+                    const sId = msg.senderId.toString();
+                    if (!senderGroups[sId]) senderGroups[sId] = [];
+                    senderGroups[sId].push(msg._id.toString());
+                });
+
+                // Emit delivery receipts to each sender that is currently online
+                Object.keys(senderGroups).forEach(sId => {
+                    io.to(sId).emit('messages_delivered', {
+                        receiverId: userId,
+                        messageIds: senderGroups[sId]
+                    });
+                });
+            }
+        } catch (err) {
+            console.error('Error resolving undelivered messages on connection:', err);
+        }
+    })();
+
     // ── send_message ──────────────────────────────────────
     socket.on('send_message', async (data) => {
         try {
@@ -146,6 +181,8 @@ io.on('connection', (socket) => {
                 return;
             }
 
+            const isReceiverOnline = userConnections.has(receiverId.toString());
+
             // Persist encrypted message (server never sees plaintext)
             const message = await Message.create({
                 senderId: userId,
@@ -160,6 +197,7 @@ io.on('connection', (socket) => {
                 mediaType: mediaType || null,
                 mediaName: mediaName || null,
                 mediaSize: mediaSize || null,
+                delivered: isReceiverOnline,
             });
 
             // Deliver to receiver's private room
@@ -299,6 +337,27 @@ io.on('connection', (socket) => {
             senderId: userId,
             isTyping: data.isTyping,
         });
+    });
+
+    // ── mark messages as read / seen ──────────────────────
+    socket.on('mark_read', async (data) => {
+        try {
+            const { senderId } = data;
+            if (!senderId) return;
+
+            // Bulk update unread messages from this peer to current user as read & delivered
+            await Message.updateMany(
+                { senderId, receiverId: userId, read: false },
+                { $set: { read: true, delivered: true } }
+            );
+
+            // Broadcast seen notification back to sender
+            io.to(senderId).emit('messages_seen', {
+                readerId: userId
+            });
+        } catch (error) {
+            console.error('mark_read socket error:', error);
+        }
     });
 
     // ── disconnect ────────────────────────────────────────

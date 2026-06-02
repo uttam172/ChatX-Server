@@ -228,10 +228,17 @@ router.get('/history/:peerId', authenticateToken, async (req, res) => {
         }).sort({ createdAt: 1 });
 
         // 2. Mark messages as read in the database in the background
-        await Message.updateMany(
+        const result = await Message.updateMany(
             { senderId: peerId, receiverId: userId, read: false },
-            { $set: { read: true } }
+            { $set: { read: true, delivered: true } }
         );
+
+        if (result.modifiedCount > 0) {
+            const io = req.app.get('socketio');
+            if (io) {
+                io.to(peerId).emit('messages_seen', { readerId: userId });
+            }
+        }
 
         res.json(messages);
     } catch (error) {
@@ -249,10 +256,17 @@ router.post('/read/:peerId', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'Invalid parameters' });
         }
 
-        await Message.updateMany(
+        const result = await Message.updateMany(
             { senderId: peerId, receiverId: userId, read: false },
-            { $set: { read: true } }
+            { $set: { read: true, delivered: true } }
         );
+
+        if (result.modifiedCount > 0) {
+            const io = req.app.get('socketio');
+            if (io) {
+                io.to(peerId).emit('messages_seen', { readerId: userId });
+            }
+        }
 
         res.json({ success: true });
     } catch (error) {

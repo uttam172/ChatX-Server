@@ -23,6 +23,7 @@ const messageSchema = new mongoose.Schema(
         ],
         isEdited: { type: Boolean, default: false },
         editedAt: { type: Date, default: null },
+        delivered: { type: Boolean, default: false },
     },
     {
         timestamps: true,

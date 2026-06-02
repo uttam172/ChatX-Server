@@ -21,6 +21,8 @@ const messageSchema = new mongoose.Schema(
                 emoji: { type: String, required: true }
             }
         ],
+        isEdited: { type: Boolean, default: false },
+        editedAt: { type: Date, default: null },
     },
     {
         timestamps: true,

@@ -186,6 +186,55 @@ io.on('connection', (socket) => {
         }
     });
 
+    // ── edit_message ──────────────────────────────────────
+    socket.on('edit_message', async (data) => {
+        try {
+            const { messageId, ciphertext, iv, encryptedAesKeySender, encryptedAesKeyReceiver } = data;
+            if (!messageId || !ciphertext || !iv) {
+                socket.emit('error', { message: 'Invalid edit payload' });
+                return;
+            }
+
+            const message = await Message.findById(messageId);
+            if (!message) {
+                socket.emit('error', { message: 'Message not found' });
+                return;
+            }
+
+            // Verify if socket user is the sender
+            if (message.senderId.toString() !== userId.toString()) {
+                socket.emit('error', { message: 'Unauthorized to edit this message' });
+                return;
+            }
+
+            // Enforce the 1-hour editing limit
+            const limitMs = 60 * 60 * 1000; // 1 hour
+            const timeDiff = Date.now() - message.createdAt.getTime();
+            if (timeDiff > limitMs) {
+                socket.emit('error', { message: 'Messages can only be edited within 1 hour of sending.' });
+                return;
+            }
+
+            // Update the message document
+            message.ciphertext = ciphertext;
+            message.iv = iv;
+            message.encryptedAesKeySender = encryptedAesKeySender;
+            message.encryptedAesKeyReceiver = encryptedAesKeyReceiver;
+            message.isEdited = true;
+            message.editedAt = new Date();
+
+            await message.save();
+
+            // Broadcast edited message event
+            io.to(message.receiverId.toString()).emit('message_edited', message.toObject());
+            io.to(message.senderId.toString()).emit('message_edited', message.toObject());
+
+        } catch (error) {
+            console.error('edit_message error:', error);
+            socket.emit('error', { message: 'Failed to edit message. Please try again.' });
+        }
+    });
+
     // ── react_to_message ──────────────────────────────────
     socket.on('react_to_message', async (data) => {
         try {

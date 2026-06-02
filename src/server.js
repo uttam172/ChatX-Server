@@ -29,6 +29,7 @@ const connectDB = require('./config/db');
 const { Message } = require('./models/Message');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
+const mediaRoutes = require('./routes/media');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const PORT = process.env.PORT || 5000;
@@ -82,6 +83,7 @@ app.get('/api/health', (_req, res) => {
 // ─── REST Routes ──────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/media', mediaRoutes);
 
 // ─── Socket.io Auth Middleware ────────────────────────────
 io.use((socket, next) => {
@@ -118,6 +120,10 @@ io.on('connection', (socket) => {
         encryptedAesKeyReceiver,
         isNudge,
         replyTo,
+        mediaUrl,
+        mediaType,
+        mediaName,
+        mediaSize,
       } = data;
 
       if (!receiverId || !ciphertext || !iv) {
@@ -135,6 +141,10 @@ io.on('connection', (socket) => {
         encryptedAesKeyReceiver,
         isNudge: isNudge ?? false,
         replyTo: replyTo || null,
+        mediaUrl: mediaUrl || null,
+        mediaType: mediaType || null,
+        mediaName: mediaName || null,
+        mediaSize: mediaSize || null,
       });
 
       // Deliver to receiver's private room

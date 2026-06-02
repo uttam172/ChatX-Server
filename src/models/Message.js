@@ -11,6 +11,10 @@ const messageSchema = new mongoose.Schema(
     isNudge: { type: Boolean, default: false },
     read: { type: Boolean, default: false },
     replyTo: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', default: null },
+    mediaUrl: { type: String, default: null },
+    mediaType: { type: String, default: null },
+    mediaName: { type: String, default: null },
+    mediaSize: { type: Number, default: null },
     reactions: [
       {
         userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },

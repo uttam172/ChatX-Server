@@ -9,6 +9,24 @@ const mongoose = require('mongoose');
 
 const router = Router();
 
+// Helper to sanitize hibernating users
+const sanitizeUser = (user) => {
+    if (!user) return user;
+    const u = typeof user.toObject === 'function' ? user.toObject() : user;
+    if (u.isHibernated) {
+        return {
+            ...u,
+            hikeId: 'Hibernating User',
+            profilePicture: '',
+            avatarSeed: 'Hibernating User',
+            avatarStyle: 'initials',
+            bio: 'This user is currently hibernating.',
+            publicKey: ''
+        };
+    }
+    return u;
+};
+
 // Get current user profile
 router.get('/me', authenticateToken, async (req, res) => {
     try {
@@ -115,9 +133,10 @@ router.get('/search', authenticateToken, async (req, res) => {
         const regex = new RegExp(q.replace(/^@/, ''), 'i');
         const users = await User.find({
             _id: { $ne: currentUserId },           // exclude self
+            isHibernated: { $ne: true },           // exclude hibernated
             $or: [{ hikeId: regex }, { email: regex }],
         })
-            .select('hikeId publicKey profilePicture avatarSeed avatarStyle bio')
+            .select('hikeId publicKey profilePicture avatarSeed avatarStyle bio isHibernated')
             .limit(20);
 
         res.json(users);
@@ -130,8 +149,8 @@ router.get('/search', authenticateToken, async (req, res) => {
 router.get('/all', authenticateToken, async (req, res) => {
     try {
         const currentUserId = req.user?.userId;
-        const users = await User.find({ _id: { $ne: currentUserId } })
-            .select('hikeId publicKey profilePicture avatarSeed avatarStyle bio')
+        const users = await User.find({ _id: { $ne: currentUserId }, isHibernated: { $ne: true } })
+            .select('hikeId publicKey profilePicture avatarSeed avatarStyle bio isHibernated')
             .sort({ createdAt: -1 });   // newest signups first
 
         res.json(users);
@@ -217,6 +236,7 @@ router.get('/recent', authenticateToken, async (req, res) => {
         const recentMessages = await Message.aggregate([
             {
                 $match: {
+                    receiverId: { $ne: null },
                     $or: [
                         { senderId: new mongoose.Types.ObjectId(userId) },
                         { receiverId: new mongoose.Types.ObjectId(userId) }
@@ -260,20 +280,24 @@ router.get('/recent', authenticateToken, async (req, res) => {
 
         const unreadMap = {};
         unreadCounts.forEach(item => {
-            unreadMap[item._id.toString()] = item.count;
+            if (item._id) {
+                unreadMap[item._id.toString()] = item.count;
+            }
         });
 
-        const userIds = recentMessages.map(m => m._id);
+        const userIds = recentMessages.map(m => m._id).filter(Boolean);
         const users = await User.find({ _id: { $in: userIds } })
-            .select('hikeId publicKey profilePicture avatarSeed avatarStyle bio');
+            .select('hikeId publicKey profilePicture avatarSeed avatarStyle bio isHibernated');
 
         const sortedUsers = userIds
             .map(id => {
-                const user = users.find(u => u._id.toString() === id.toString());
-                const msgInfo = recentMessages.find(m => m._id.toString() === id.toString());
+                if (!id) return null;
+                const user = users.find(u => u && u._id && u._id.toString() === id.toString());
+                const msgInfo = recentMessages.find(m => m._id && m._id.toString() === id.toString());
                 if (!user) return null;
+                const sanitizedUser = sanitizeUser(user);
                 return {
-                    ...user.toObject(),
+                    ...sanitizedUser,
                     latestMessage: msgInfo ? msgInfo.latestMessage : null,
                     unreadCount: unreadMap[id.toString()] || 0
                 };
@@ -397,6 +421,69 @@ router.post('/update-public-key', authenticateToken, async (req, res) => {
 
         res.json({ message: 'Keys updated successfully', publicKey: user.publicKey });
     } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Delete account completely
+router.delete('/delete-account', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        // 1. Delete user from database
+        await User.findByIdAndDelete(userId);
+
+        // 2. Remove user from all groups
+        const { Group } = require('../models/Group');
+        await Group.updateMany(
+            { members: userId },
+            { $pull: { members: userId } }
+        );
+
+        // 3. Delete user's chat settings
+        await ChatSettings.deleteMany({ userId });
+        await ChatSettings.deleteMany({ peerId: userId });
+
+        // 4. Delete user's messages
+        await Message.deleteMany({
+            $or: [
+                { senderId: userId },
+                { receiverId: userId }
+            ]
+        });
+
+        // 5. Delete empty groups
+        await Group.deleteMany({ members: { $size: 0 } });
+
+        res.json({ success: true, message: 'Account deleted successfully' });
+    } catch (error) {
+        console.error('Delete account error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Hibernate account temporarily
+router.post('/hibernate', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        user.isHibernated = true;
+        await user.save();
+
+        res.json({ success: true, message: 'Account hibernated successfully' });
+    } catch (error) {
+        console.error('Hibernate account error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

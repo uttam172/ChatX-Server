@@ -96,6 +96,12 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
+        // Unhibernate user if currently hibernating
+        if (user.isHibernated) {
+            user.isHibernated = false;
+            await user.save();
+        }
+
         // Sign JWT
         const token = jwt.sign({ userId: user._id, hikeId: user.hikeId }, JWT_SECRET, { expiresIn: '7d' });
 

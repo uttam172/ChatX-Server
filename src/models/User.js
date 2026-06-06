@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema(
         avatarSeed: { type: String, default: "" },
         avatarStyle: { type: String, default: "initials" },
         bio: { type: String, default: "Hey there! I am using ChatX." },
+        isHibernated: { type: Boolean, default: false },
     },
     {
         timestamps: true,

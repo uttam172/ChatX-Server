@@ -5,6 +5,49 @@ const { authenticateToken } = require('../middlewares/auth');
 
 const router = Router();
 
+// Helper to sanitize hibernating users
+const sanitizeUser = (user) => {
+    if (!user) return user;
+    const u = typeof user.toObject === 'function' ? user.toObject() : user;
+    if (u.isHibernated) {
+        return {
+            ...u,
+            hikeId: 'Hibernating User',
+            profilePicture: '',
+            avatarSeed: 'Hibernating User',
+            avatarStyle: 'initials',
+            bio: 'This user is currently hibernating.',
+            publicKey: ''
+        };
+    }
+    return u;
+};
+
+// Helper to sanitize groups
+const sanitizeGroup = (group) => {
+    if (!group) return null;
+    const g = typeof group.toObject === 'function' ? group.toObject() : group;
+    if (g.members) {
+        g.members = g.members.map(m => sanitizeUser(m));
+    }
+    if (g.latestMessage) {
+        if (g.latestMessage.senderId) {
+            g.latestMessage.senderId = sanitizeUser(g.latestMessage.senderId);
+        }
+    }
+    return g;
+};
+
+// Helper to sanitize group messages
+const sanitizeMessage = (msg) => {
+    if (!msg) return null;
+    const m = typeof msg.toObject === 'function' ? msg.toObject() : msg;
+    if (m.senderId) {
+        m.senderId = sanitizeUser(m.senderId);
+    }
+    return m;
+};
+
 // Create a new group
 router.post('/', authenticateToken, async (req, res) => {
     try {
@@ -29,7 +72,7 @@ router.post('/', authenticateToken, async (req, res) => {
         });
 
         const populatedGroup = await Group.findById(group._id)
-            .populate('members', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio');
+            .populate('members', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio isHibernated');
 
         // Dynamically add all online members to the group socket.io room
         const io = req.app.get('socketio');
@@ -49,10 +92,10 @@ router.post('/', authenticateToken, async (req, res) => {
             });
 
             // Broadcast group created socket event to all members so they update their lists
-            io.to(`group_${group._id.toString()}`).emit('group_created', populatedGroup.toObject());
+            io.to(`group_${group._id.toString()}`).emit('group_created', sanitizeGroup(populatedGroup));
         }
 
-        res.status(201).json(populatedGroup);
+        res.status(201).json(sanitizeGroup(populatedGroup));
     } catch (error) {
         console.error('Create group error:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -68,14 +111,14 @@ router.get('/', authenticateToken, async (req, res) => {
         }
 
         const groups = await Group.find({ members: currentUserId })
-            .populate('members', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio')
+            .populate('members', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio isHibernated')
             .sort({ updatedAt: -1 });
 
         const groupsWithMetadata = await Promise.all(
             groups.map(async (group) => {
                 // Find latest message in group
                 const latestMessage = await Message.findOne({ groupId: group._id })
-                    .populate('senderId', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio')
+                    .populate('senderId', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio isHibernated')
                     .sort({ createdAt: -1 });
 
                 // Count unread group messages for the user
@@ -94,7 +137,7 @@ router.get('/', authenticateToken, async (req, res) => {
             })
         );
 
-        res.json(groupsWithMetadata);
+        res.json(groupsWithMetadata.map(sanitizeGroup));
     } catch (error) {
         console.error('Fetch groups error:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -118,7 +161,7 @@ router.get('/history/:groupId', authenticateToken, async (req, res) => {
         }
 
         const messages = await Message.find({ groupId })
-            .populate('senderId', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio')
+            .populate('senderId', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio isHibernated')
             .sort({ createdAt: 1 });
 
         // Mark messages as read by current user in the database
@@ -134,7 +177,7 @@ router.get('/history/:groupId', authenticateToken, async (req, res) => {
             }
         }
 
-        res.json(messages);
+        res.json(messages.map(sanitizeMessage));
     } catch (error) {
         console.error('Fetch group history error:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -209,10 +252,20 @@ router.put('/:groupId', authenticateToken, async (req, res) => {
             group.members = uniqueMembers;
         }
 
+        if (req.body.profilePicture !== undefined) {
+            group.profilePicture = req.body.profilePicture;
+        }
+        if (req.body.avatarSeed !== undefined) {
+            group.avatarSeed = req.body.avatarSeed;
+        }
+        if (req.body.avatarStyle !== undefined) {
+            group.avatarStyle = req.body.avatarStyle;
+        }
+
         await group.save();
 
         const populatedGroup = await Group.findById(group._id)
-            .populate('members', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio');
+            .populate('members', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio isHibernated');
 
         const io = req.app.get('socketio');
         const userConnections = req.app.get('userConnections');
@@ -239,7 +292,7 @@ router.put('/:groupId', authenticateToken, async (req, res) => {
             });
 
             // Broadcast group_updated to all current members
-            io.to(`group_${group._id.toString()}`).emit('group_updated', populatedGroup.toObject());
+            io.to(`group_${group._id.toString()}`).emit('group_updated', sanitizeGroup(populatedGroup));
 
             // Removed members leave group room and get removed event
             removedMembers.forEach(memberId => {
@@ -254,13 +307,134 @@ router.put('/:groupId', authenticateToken, async (req, res) => {
                     });
                 }
                 // Notify the removed member to clear the group chat from their UI
-                io.to(memberId).emit('group_removed', { groupId: group._id.toString() });
+                io.to(memberId).emit('group_removed', { groupId: group._id.toString(), reason: 'removed' });
             });
         }
 
-        res.json(populatedGroup);
+        res.json(sanitizeGroup(populatedGroup));
     } catch (error) {
         console.error('Update group error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Leave a group (Only non-admin members can do this)
+router.post('/:groupId/leave', authenticateToken, async (req, res) => {
+    try {
+        const { groupId } = req.params;
+        const currentUserId = req.user?.userId;
+
+        if (!currentUserId || !groupId) {
+            return res.status(400).json({ error: 'Invalid parameters' });
+        }
+
+        const group = await Group.findById(groupId);
+        if (!group) {
+            return res.status(404).json({ error: 'Group not found' });
+        }
+
+        // Verify user is a member of the group
+        const isMember = group.members.some(m => m.toString() === currentUserId.toString());
+        if (!isMember) {
+            return res.status(403).json({ error: 'Access denied: You are not a member of this group' });
+        }
+
+        // Admin cannot leave the group (they must delete it)
+        if (group.createdBy.toString() === currentUserId.toString()) {
+            return res.status(400).json({ error: 'Admin cannot leave the group. Delete the group instead.' });
+        }
+
+        // Remove user from members list
+        group.members = group.members.filter(m => m.toString() !== currentUserId.toString());
+        await group.save();
+
+        const populatedGroup = await Group.findById(group._id)
+            .populate('members', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio isHibernated');
+
+        const io = req.app.get('socketio');
+        const userConnections = req.app.get('userConnections');
+        if (io) {
+            // Remove leaving user's sockets from the group room
+            if (userConnections) {
+                const memberSockets = userConnections.get(currentUserId.toString());
+                if (memberSockets) {
+                    memberSockets.forEach(sId => {
+                        const s = io.sockets.sockets.get(sId);
+                        if (s) {
+                            s.leave(`group_${group._id.toString()}`);
+                            console.log(`📡 socket leave group_${group._id} room for leaving member`);
+                        }
+                    });
+                }
+            }
+
+            // Emit group_removed to the leaving user
+            io.to(currentUserId.toString()).emit('group_removed', { groupId: group._id.toString(), reason: 'left' });
+
+            // Broadcast group_updated to remaining members
+            io.to(`group_${group._id.toString()}`).emit('group_updated', sanitizeGroup(populatedGroup));
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Leave group error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Delete a group (Only admin can do this)
+router.delete('/:groupId', authenticateToken, async (req, res) => {
+    try {
+        const { groupId } = req.params;
+        const currentUserId = req.user?.userId;
+
+        if (!currentUserId || !groupId) {
+            return res.status(400).json({ error: 'Invalid parameters' });
+        }
+
+        const group = await Group.findById(groupId);
+        if (!group) {
+            return res.status(404).json({ error: 'Group not found' });
+        }
+
+        // Verify user is the admin (creator) of the group
+        if (group.createdBy.toString() !== currentUserId.toString()) {
+            return res.status(403).json({ error: 'Access denied: Only the group admin can delete the group' });
+        }
+
+        const memberIds = group.members.map(m => m.toString());
+
+        // Delete the group document
+        await Group.deleteOne({ _id: groupId });
+
+        // Delete all messages associated with the group
+        await Message.deleteMany({ groupId });
+
+        const io = req.app.get('socketio');
+        const userConnections = req.app.get('userConnections');
+        if (io) {
+            // Broadcast group_removed with reason "deleted" to the group room
+            io.to(`group_${groupId}`).emit('group_removed', { groupId, reason: 'deleted' });
+
+            // Force all members' sockets to leave the group room
+            if (userConnections) {
+                memberIds.forEach(memberId => {
+                    const memberSockets = userConnections.get(memberId);
+                    if (memberSockets) {
+                        memberSockets.forEach(sId => {
+                            const s = io.sockets.sockets.get(sId);
+                            if (s) {
+                                s.leave(`group_${groupId}`);
+                            }
+                        });
+                    }
+                });
+            }
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Delete group error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

@@ -129,7 +129,9 @@ io.on('connection', (socket) => {
     socket.emit('online_users_list', onlineUsers);
 
     // Each user joins their own private room so we can target them directly
-    socket.join(userId);
+    if (userId) {
+        socket.join(userId.toString());
+    }
 
     // Join group rooms for groups user is member of
     (async () => {
@@ -233,7 +235,9 @@ io.on('connection', (socket) => {
                 socket.emit('message_sent', messageObj);
             } else {
                 // Deliver to receiver's private room
-                io.to(receiverId).emit('receive_message', messageObj);
+                if (receiverId) {
+                    io.to(receiverId.toString()).emit('receive_message', messageObj);
+                }
                 // Echo back to sender
                 socket.emit('message_sent', messageObj);
             }

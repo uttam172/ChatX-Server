@@ -3,11 +3,21 @@ const mongoose = require('mongoose');
 const messageSchema = new mongoose.Schema(
     {
         senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-        receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        groupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', default: null },
         ciphertext: { type: String, required: true },
         iv: { type: String, required: true },
         encryptedAesKeySender: { type: String, required: true },
-        encryptedAesKeyReceiver: { type: String, required: true },
+        encryptedAesKeyReceiver: { type: String },
+        groupAesKeys: [
+            {
+                userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+                encryptedAesKey: { type: String, required: true }
+            }
+        ],
+        readBy: [
+            { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+        ],
         isNudge: { type: Boolean, default: false },
         read: { type: Boolean, default: false },
         replyTo: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', default: null },

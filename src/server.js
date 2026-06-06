@@ -30,6 +30,7 @@ const { Message } = require('./models/Message');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const mediaRoutes = require('./routes/media');
+const groupRoutes = require('./routes/groups');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const PORT = process.env.PORT || 5000;
@@ -86,6 +87,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/media', mediaRoutes);
+app.use('/api/groups', groupRoutes);
 
 // ─── Socket.io Auth Middleware ────────────────────────────
 io.use((socket, next) => {
@@ -106,6 +108,7 @@ io.use((socket, next) => {
 // ─── Socket.io State ─────────────────────────────────────
 const onlineUsers = {}; // Mapping of userId -> { isOnline: boolean, lastSeen: number }
 const userConnections = new Map(); // Map of userId -> Set of socketId
+app.set('userConnections', userConnections);
 
 // ─── Socket.io Events ────────────────────────────────────
 io.on('connection', (socket) => {
@@ -125,6 +128,20 @@ io.on('connection', (socket) => {
 
     // Each user joins their own private room so we can target them directly
     socket.join(userId);
+
+    // Join group rooms for groups user is member of
+    (async () => {
+        try {
+            const { Group } = require('./models/Group');
+            const groups = await Group.find({ members: userId });
+            groups.forEach(g => {
+                socket.join(`group_${g._id.toString()}`);
+                console.log(`📡 @${socket.data.hikeId} joined socket room group_${g._id}`);
+            });
+        } catch (err) {
+            console.error('Error joining group rooms on connect:', err);
+        }
+    })();
 
     // Deliver any offline backlogged messages sent to this user
     (async () => {
@@ -164,10 +181,12 @@ io.on('connection', (socket) => {
         try {
             const {
                 receiverId,
+                groupId,
                 ciphertext,
                 iv,
                 encryptedAesKeySender,
                 encryptedAesKeyReceiver,
+                groupAesKeys,
                 isNudge,
                 replyTo,
                 mediaUrl,
@@ -176,35 +195,46 @@ io.on('connection', (socket) => {
                 mediaSize,
             } = data;
 
-            if (!receiverId || !ciphertext || !iv) {
+            if ((!receiverId && !groupId) || !ciphertext || !iv) {
                 socket.emit('error', { message: 'Invalid message payload' });
                 return;
             }
 
-            const isReceiverOnline = userConnections.has(receiverId.toString());
+            const isReceiverOnline = receiverId ? userConnections.has(receiverId.toString()) : false;
 
             // Persist encrypted message (server never sees plaintext)
             const message = await Message.create({
                 senderId: userId,
-                receiverId,
+                receiverId: receiverId || null,
+                groupId: groupId || null,
                 ciphertext,
                 iv,
                 encryptedAesKeySender,
-                encryptedAesKeyReceiver,
+                encryptedAesKeyReceiver: encryptedAesKeyReceiver || null,
+                groupAesKeys: groupAesKeys || [],
                 isNudge: isNudge ?? false,
                 replyTo: replyTo || null,
                 mediaUrl: mediaUrl || null,
                 mediaType: mediaType || null,
                 mediaName: mediaName || null,
                 mediaSize: mediaSize || null,
-                delivered: isReceiverOnline,
+                delivered: receiverId ? isReceiverOnline : true,
             });
 
-            // Deliver to receiver's private room
-            io.to(receiverId).emit('receive_message', message.toObject());
+            const messageObj = message.toObject();
+            messageObj.senderHikeId = socket.data.hikeId; // Include sender Hike ID for frontend
 
-            // Echo back to sender for confirmation / multi-device sync
-            socket.emit('message_sent', message.toObject());
+            if (groupId) {
+                // Broadcast to the group room (excluding sender socket)
+                socket.to(`group_${groupId}`).emit('receive_message', messageObj);
+                // Echo back to sender
+                socket.emit('message_sent', messageObj);
+            } else {
+                // Deliver to receiver's private room
+                io.to(receiverId).emit('receive_message', messageObj);
+                // Echo back to sender
+                socket.emit('message_sent', messageObj);
+            }
 
         } catch (error) {
             console.error('send_message error:', error);

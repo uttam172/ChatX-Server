@@ -369,6 +369,37 @@ io.on('connection', (socket) => {
         });
     });
 
+    // ── call events forwarding ────────────────────────────
+    socket.on('call_user', (data) => {
+        console.log(`📞 [SOCKET] call_user: from @${socket.data.hikeId} (ID: ${userId}) to recipient (ID: ${data.receiverId}) [type: ${data.type}]`);
+        io.to(data.receiverId).emit('incoming_call', {
+            senderId: userId,
+            senderHikeId: socket.data.hikeId,
+            type: data.type
+        });
+    });
+
+    socket.on('accept_call', (data) => {
+        console.log(`💚 [SOCKET] accept_call: from @${socket.data.hikeId} (ID: ${userId}) to caller (ID: ${data.callerId})`);
+        io.to(data.callerId).emit('call_accepted', {
+            receiverId: userId
+        });
+    });
+
+    socket.on('decline_call', (data) => {
+        console.log(`❤️ [SOCKET] decline_call: from @${socket.data.hikeId} (ID: ${userId}) to caller (ID: ${data.callerId})`);
+        io.to(data.callerId).emit('call_declined', {
+            receiverId: userId
+        });
+    });
+
+    socket.on('end_call', (data) => {
+        console.log(`🛑 [SOCKET] end_call: from @${socket.data.hikeId} (ID: ${userId}) to peer (ID: ${data.peerId})`);
+        io.to(data.peerId).emit('call_ended', {
+            senderId: userId
+        });
+    });
+
     // ── mark messages as read / seen ──────────────────────
     socket.on('mark_read', async (data) => {
         try {

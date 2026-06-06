@@ -53,6 +53,10 @@ router.post('/signup', async (req, res) => {
                 hikeId: newUser.hikeId,
                 publicKey: newUser.publicKey,
                 encryptedPrivateKey: newUser.encryptedPrivateKey,
+                profilePicture: newUser.profilePicture || "",
+                avatarSeed: newUser.avatarSeed || "",
+                avatarStyle: newUser.avatarStyle || "initials",
+                bio: newUser.bio || "Hey there! I am using ChatX.",
             },
         });
     } catch (error) {
@@ -104,6 +108,10 @@ router.post('/login', async (req, res) => {
                 hikeId: user.hikeId,
                 publicKey: user.publicKey,
                 encryptedPrivateKey: user.encryptedPrivateKey,
+                profilePicture: user.profilePicture || "",
+                avatarSeed: user.avatarSeed || "",
+                avatarStyle: user.avatarStyle || "initials",
+                bio: user.bio || "Hey there! I am using ChatX.",
             },
         });
     } catch (error) {

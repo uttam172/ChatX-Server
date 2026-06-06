@@ -390,6 +390,15 @@ io.on('connection', (socket) => {
         }
     });
 
+    // ── update hike id ─────────────────────────────────────
+    socket.on('update_hike_id', (newHikeId) => {
+        if (newHikeId && typeof newHikeId === 'string') {
+            const oldHikeId = socket.data.hikeId;
+            socket.data.hikeId = newHikeId;
+            console.log(`👤 User @${oldHikeId} changed username to @${newHikeId}`);
+        }
+    });
+
     // ── disconnect ────────────────────────────────────────
     socket.on('disconnect', (reason) => {
         console.log(`❌ User disconnected: @${socket.data.hikeId} (reason: ${reason})`);

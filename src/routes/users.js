@@ -4,6 +4,7 @@ const { ChatSettings } = require('../models/ChatSettings');
 const { Message } = require('../models/Message');
 const { authenticateToken } = require('../middlewares/auth');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 
 const router = Router();
@@ -24,6 +25,83 @@ router.get('/me', authenticateToken, async (req, res) => {
     }
 });
 
+// Update current user profile
+router.put('/profile', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        const { hikeId, email, bio, profilePicture, avatarSeed, avatarStyle } = req.body;
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const updates = {};
+
+        // Update email if provided
+        if (email !== undefined) {
+            const cleanEmail = email.trim().toLowerCase();
+            if (!cleanEmail) {
+                return res.status(400).json({ error: 'Email cannot be empty' });
+            }
+            // Check uniqueness
+            const existingEmail = await User.findOne({ email: cleanEmail, _id: { $ne: userId } });
+            if (existingEmail) {
+                return res.status(409).json({ error: 'Email is already taken by another user' });
+            }
+            updates.email = cleanEmail;
+        }
+
+        // Update username (hikeId) if provided
+        if (hikeId !== undefined) {
+            const cleanHikeId = hikeId.trim().startsWith('@') 
+                ? hikeId.trim().slice(1).toLowerCase() 
+                : hikeId.trim().toLowerCase();
+            if (!cleanHikeId) {
+                return res.status(400).json({ error: 'Username cannot be empty' });
+            }
+            // Check uniqueness
+            const existingHikeId = await User.findOne({ hikeId: cleanHikeId, _id: { $ne: userId } });
+            if (existingHikeId) {
+                return res.status(409).json({ error: 'Username is already taken by another user' });
+            }
+            updates.hikeId = cleanHikeId;
+        }
+
+        // Update other optional profile fields
+        if (bio !== undefined) updates.bio = bio;
+        if (profilePicture !== undefined) updates.profilePicture = profilePicture;
+        if (avatarSeed !== undefined) updates.avatarSeed = avatarSeed;
+        if (avatarStyle !== undefined) updates.avatarStyle = avatarStyle;
+
+        // Perform the update
+        const updatedUser = await User.findByIdAndUpdate(
+            userId,
+            { $set: updates },
+            { new: true }
+        ).select('-passwordHash -hiddenPinHash');
+
+        // If hikeId was changed, generate a new JWT token
+        let token = null;
+        if (updates.hikeId && updates.hikeId !== user.hikeId) {
+            const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-for-dev';
+            token = jwt.sign({ userId: updatedUser._id, hikeId: updatedUser.hikeId }, JWT_SECRET, { expiresIn: '7d' });
+        }
+
+        res.json({
+            user: updatedUser,
+            token
+        });
+    } catch (error) {
+        console.error('Profile update error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // Search users by hikeId or email
 router.get('/search', authenticateToken, async (req, res) => {
     try {
@@ -39,7 +117,7 @@ router.get('/search', authenticateToken, async (req, res) => {
             _id: { $ne: currentUserId },           // exclude self
             $or: [{ hikeId: regex }, { email: regex }],
         })
-            .select('hikeId publicKey')
+            .select('hikeId publicKey profilePicture avatarSeed avatarStyle bio')
             .limit(20);
 
         res.json(users);
@@ -53,7 +131,7 @@ router.get('/all', authenticateToken, async (req, res) => {
     try {
         const currentUserId = req.user?.userId;
         const users = await User.find({ _id: { $ne: currentUserId } })
-            .select('hikeId publicKey')
+            .select('hikeId publicKey profilePicture avatarSeed avatarStyle bio')
             .sort({ createdAt: -1 });   // newest signups first
 
         res.json(users);
@@ -187,7 +265,7 @@ router.get('/recent', authenticateToken, async (req, res) => {
 
         const userIds = recentMessages.map(m => m._id);
         const users = await User.find({ _id: { $in: userIds } })
-            .select('hikeId publicKey');
+            .select('hikeId publicKey profilePicture avatarSeed avatarStyle bio');
 
         const sortedUsers = userIds
             .map(id => {

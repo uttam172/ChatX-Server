@@ -29,7 +29,7 @@ router.post('/', authenticateToken, async (req, res) => {
         });
 
         const populatedGroup = await Group.findById(group._id)
-            .populate('members', 'hikeId publicKey');
+            .populate('members', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio');
 
         // Dynamically add all online members to the group socket.io room
         const io = req.app.get('socketio');
@@ -68,14 +68,14 @@ router.get('/', authenticateToken, async (req, res) => {
         }
 
         const groups = await Group.find({ members: currentUserId })
-            .populate('members', 'hikeId publicKey')
+            .populate('members', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio')
             .sort({ updatedAt: -1 });
 
         const groupsWithMetadata = await Promise.all(
             groups.map(async (group) => {
                 // Find latest message in group
                 const latestMessage = await Message.findOne({ groupId: group._id })
-                    .populate('senderId', 'hikeId publicKey')
+                    .populate('senderId', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio')
                     .sort({ createdAt: -1 });
 
                 // Count unread group messages for the user
@@ -118,7 +118,7 @@ router.get('/history/:groupId', authenticateToken, async (req, res) => {
         }
 
         const messages = await Message.find({ groupId })
-            .populate('senderId', 'hikeId publicKey')
+            .populate('senderId', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio')
             .sort({ createdAt: 1 });
 
         // Mark messages as read by current user in the database
@@ -212,7 +212,7 @@ router.put('/:groupId', authenticateToken, async (req, res) => {
         await group.save();
 
         const populatedGroup = await Group.findById(group._id)
-            .populate('members', 'hikeId publicKey');
+            .populate('members', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio');
 
         const io = req.app.get('socketio');
         const userConnections = req.app.get('userConnections');

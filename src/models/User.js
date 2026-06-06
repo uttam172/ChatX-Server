@@ -8,6 +8,10 @@ const userSchema = new mongoose.Schema(
         publicKey: { type: String, required: true },
         hiddenPinHash: { type: String },
         encryptedPrivateKey: { type: String },
+        profilePicture: { type: String, default: "" },
+        avatarSeed: { type: String, default: "" },
+        avatarStyle: { type: String, default: "initials" },
+        bio: { type: String, default: "Hey there! I am using ChatX." },
     },
     {
         timestamps: true,

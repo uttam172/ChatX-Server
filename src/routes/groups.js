@@ -339,9 +339,23 @@ router.post('/:groupId/leave', authenticateToken, async (req, res) => {
             return res.status(403).json({ error: 'Access denied: You are not a member of this group' });
         }
 
-        // Admin cannot leave the group (they must delete it)
+        // If the leaving user is the creator (admin)
         if (group.createdBy.toString() === currentUserId.toString()) {
-            return res.status(400).json({ error: 'Admin cannot leave the group. Delete the group instead.' });
+            const remainingMembers = group.members.filter(m => m.toString() !== currentUserId.toString());
+            if (remainingMembers.length === 0) {
+                // If no other members left, delete the group entirely
+                await Group.deleteOne({ _id: groupId });
+
+                const io = req.app.get('socketio');
+                if (io) {
+                    io.to(currentUserId.toString()).emit('group_removed', { groupId: group._id.toString(), reason: 'left' });
+                }
+
+                return res.json({ success: true, message: 'Group deleted as the admin left and no other members remained.' });
+            } else {
+                // Transfer admin rights to the first remaining member
+                group.createdBy = remainingMembers[0];
+            }
         }
 
         // Remove user from members list

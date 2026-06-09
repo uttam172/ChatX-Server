@@ -27,6 +27,21 @@ const sanitizeUser = (user) => {
     return u;
 };
 
+// Helper to sanitize groups
+const sanitizeGroup = (group) => {
+    if (!group) return null;
+    const g = typeof group.toObject === 'function' ? group.toObject() : group;
+    if (g.members) {
+        g.members = g.members.map(m => sanitizeUser(m));
+    }
+    if (g.latestMessage) {
+        if (g.latestMessage.senderId) {
+            g.latestMessage.senderId = sanitizeUser(g.latestMessage.senderId);
+        }
+    }
+    return g;
+};
+
 // Get current user profile
 router.get('/me', authenticateToken, async (req, res) => {
     try {
@@ -433,30 +448,67 @@ router.delete('/delete-account', authenticateToken, async (req, res) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        // 1. Delete user from database
-        await User.findByIdAndDelete(userId);
+        const userObjectId = new mongoose.Types.ObjectId(userId);
 
-        // 2. Remove user from all groups
+        // 1. Find all groups the user is currently a member of BEFORE pulling them
         const { Group } = require('../models/Group');
-        await Group.updateMany(
-            { members: userId },
-            { $pull: { members: userId } }
-        );
+        const groupsUserWasIn = await Group.find({ members: userObjectId });
+
+        // 2. Remove user from all groups and handle admin transfer if deleted user was the creator
+        for (const group of groupsUserWasIn) {
+            const remainingMembers = group.members.filter(m => m.toString() !== userId.toString());
+            if (group.createdBy.toString() === userId.toString() && remainingMembers.length > 0) {
+                // Promote the first remaining member to admin
+                await Group.updateOne(
+                    { _id: group._id },
+                    { 
+                        $pull: { members: userObjectId },
+                        $set: { createdBy: remainingMembers[0] }
+                    }
+                );
+            } else {
+                // Just remove the user from the members list
+                await Group.updateOne(
+                    { _id: group._id },
+                    { $pull: { members: userObjectId } }
+                );
+            }
+        }
 
         // 3. Delete user's chat settings
-        await ChatSettings.deleteMany({ userId });
-        await ChatSettings.deleteMany({ peerId: userId });
+        await ChatSettings.deleteMany({ userId: userObjectId });
+        await ChatSettings.deleteMany({ peerId: userObjectId });
 
         // 4. Delete user's messages
         await Message.deleteMany({
             $or: [
-                { senderId: userId },
-                { receiverId: userId }
+                { senderId: userObjectId },
+                { receiverId: userObjectId }
             ]
         });
 
-        // 5. Delete empty groups
-        await Group.deleteMany({ members: { $size: 0 } });
+        // 5. Delete user from database
+        await User.findByIdAndDelete(userObjectId);
+
+        // 6. Clean up empty groups and notify remaining members of the groups they left
+        const io = req.app.get('socketio');
+        if (io) {
+            for (const group of groupsUserWasIn) {
+                const updatedGroup = await Group.findById(group._id)
+                    .populate('members', 'hikeId publicKey profilePicture avatarSeed avatarStyle bio isHibernated');
+
+                if (updatedGroup) {
+                    if (updatedGroup.members.length === 0) {
+                        // If no members left in group, delete the group document
+                        await Group.deleteOne({ _id: group._id });
+                        io.to(`group_${group._id}`).emit('group_removed', { groupId: group._id.toString(), reason: 'deleted' });
+                    } else {
+                        // Broadcast updated group details to remaining members
+                        io.to(`group_${group._id}`).emit('group_updated', sanitizeGroup(updatedGroup));
+                    }
+                }
+            }
+        }
 
         res.json({ success: true, message: 'Account deleted successfully' });
     } catch (error) {

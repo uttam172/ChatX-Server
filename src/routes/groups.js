@@ -345,6 +345,8 @@ router.post('/:groupId/leave', authenticateToken, async (req, res) => {
             if (remainingMembers.length === 0) {
                 // If no other members left, delete the group entirely
                 await Group.deleteOne({ _id: groupId });
+                const { ChatSettings } = require('../models/ChatSettings');
+                await ChatSettings.deleteMany({ groupId });
 
                 const io = req.app.get('socketio');
                 if (io) {
@@ -423,6 +425,10 @@ router.delete('/:groupId', authenticateToken, async (req, res) => {
 
         // Delete all messages associated with the group
         await Message.deleteMany({ groupId });
+
+        // Delete all chat settings associated with the group
+        const { ChatSettings } = require('../models/ChatSettings');
+        await ChatSettings.deleteMany({ groupId });
 
         const io = req.app.get('socketio');
         const userConnections = req.app.get('userConnections');

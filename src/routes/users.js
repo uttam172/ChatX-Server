@@ -224,6 +224,44 @@ router.post('/chat-settings/hidden', authenticateToken, async (req, res) => {
     }
 });
 
+// Update Chat Theme and Background (For both peer-to-peer and group chats)
+router.post('/chat-settings/theme', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        const { peerId, groupId, theme, customBackground } = req.body;
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        if (!peerId && !groupId) {
+            return res.status(400).json({ error: 'Must specify peerId or groupId' });
+        }
+
+        const query = { userId };
+        if (peerId) {
+            query.peerId = peerId;
+        } else {
+            query.groupId = groupId;
+        }
+
+        const updates = {};
+        if (theme !== undefined) updates.theme = theme;
+        if (customBackground !== undefined) updates.customBackground = customBackground;
+
+        const settings = await ChatSettings.findOneAndUpdate(
+            query,
+            { $set: updates },
+            { new: true, upsert: true }
+        );
+
+        res.json(settings);
+    } catch (error) {
+        console.error('Update theme error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // Get User's Chat Settings
 router.get('/chat-settings', authenticateToken, async (req, res) => {
     try {
@@ -501,6 +539,7 @@ router.delete('/delete-account', authenticateToken, async (req, res) => {
                     if (updatedGroup.members.length === 0) {
                         // If no members left in group, delete the group document
                         await Group.deleteOne({ _id: group._id });
+                        await ChatSettings.deleteMany({ groupId: group._id });
                         io.to(`group_${group._id}`).emit('group_removed', { groupId: group._id.toString(), reason: 'deleted' });
                     } else {
                         // Broadcast updated group details to remaining members

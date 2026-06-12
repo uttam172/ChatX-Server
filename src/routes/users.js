@@ -238,22 +238,68 @@ router.post('/chat-settings/theme', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'Must specify peerId or groupId' });
         }
 
-        const query = { userId };
-        if (peerId) {
-            query.peerId = peerId;
-        } else {
-            query.groupId = groupId;
-        }
-
         const updates = {};
         if (theme !== undefined) updates.theme = theme;
         if (customBackground !== undefined) updates.customBackground = customBackground;
 
-        const settings = await ChatSettings.findOneAndUpdate(
-            query,
-            { $set: updates },
-            { new: true, upsert: true }
-        );
+        let settings;
+        const io = req.app.get('socketio');
+
+        if (groupId) {
+            await ChatSettings.updateMany(
+                { groupId },
+                { $set: updates }
+            );
+            settings = await ChatSettings.findOne({ userId, groupId });
+            if (io) {
+                io.to(`group_${groupId}`).emit('chat_settings_updated', { groupId, ...updates });
+            }
+        } else if (peerId) {
+            settings = await ChatSettings.findOneAndUpdate(
+                { userId, peerId },
+                { $set: updates },
+                { new: true, upsert: true }
+            );
+            await ChatSettings.findOneAndUpdate(
+                { userId: peerId, peerId: userId },
+                { $set: updates },
+                { new: true, upsert: true }
+            );
+            if (io) {
+                io.to(userId.toString()).emit('chat_settings_updated', { peerId, ...updates });
+                io.to(peerId.toString()).emit('chat_settings_updated', { peerId: userId, ...updates });
+            }
+        }
+
+        // Create a system message
+        let eventData = "custom wallpaper";
+        if (theme !== undefined && theme !== "default") {
+            eventData = theme;
+        } else if (theme === "default") {
+            eventData = "default theme";
+        }
+        
+        const systemMessage = new Message({
+            senderId: userId,
+            receiverId: peerId || null,
+            groupId: groupId || null,
+            ciphertext: "SYSTEM_EVENT",
+            iv: "SYSTEM_EVENT",
+            encryptedAesKeySender: "SYSTEM_EVENT",
+            isSystemEvent: true,
+            systemEventType: "BACKGROUND_CHANGED",
+            systemEventData: eventData
+        });
+        await systemMessage.save();
+
+        if (io) {
+            if (groupId) {
+                io.to(`group_${groupId}`).emit('receive_message', systemMessage);
+            } else if (peerId) {
+                io.to(userId.toString()).emit('receive_message', systemMessage);
+                io.to(peerId.toString()).emit('receive_message', systemMessage);
+            }
+        }
 
         res.json(settings);
     } catch (error) {
